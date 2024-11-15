@@ -1,115 +1,68 @@
-# Импорт необходимых модулей и классов
-import os  # Для работы с файловой системой 
-import csv  
-import sys  # Для доступа к аргументам командной строки
-from icrawler.builtin import GoogleImageCrawler, BingImageCrawler 
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+import argparse
+import os
 
-# Класс для краулинга изображений по ключевому слову и источнику (По умолчанию гугл, но я юзал бинг ( ͡❛ ͜ʖ ͡❛))
-class CatImageCrawler:
-    def __init__(self, keyword, save_folder, annotation_file, num_images, source='google'):
-        
-        self.keyword = keyword  
-        self.save_folder = save_folder  
-        self.annotation_file = annotation_file  
-        self.num_images = num_images  
-        self.source = source  
+def main(input_path, output_path, crop_width, crop_height):
+    # 1. Чтение изображения
+    image = cv2.imread(input_path)
+    
+    if image is None:
+        print("Ошибка: невозможно загрузить изображение. Проверьте путь к файлу.")
+        return
 
-    # Метод для выполнения краулинга изображений
-    def crawl_images(self):
-        # Создание папки для сохранения изображений, если её нет
-        if not os.path.exists(self.save_folder):
-            os.makedirs(self.save_folder)
+    # Вывод размера изображения
+    height, width, channels = image.shape
+    print(f"Размер изображения: {width}x{height} пикселей, Каналы: {channels}")
 
-        # тут настройки краулеров либо для гугла либо для бинга
-        if self.source == 'google':
-            crawler = GoogleImageCrawler(storage={'root_dir': self.save_folder})  
-        elif self.source == 'bing':
-            crawler = BingImageCrawler(storage={'root_dir': self.save_folder})  
-        else:
-            raise ValueError("Invalid source. Choose 'google' or 'bing'.")  # Ошибка для неверного источника
+    # 2. Построение гистограммы
+    plt.figure()
+    colors = ('b', 'g', 'r')
+    for i, color in enumerate(colors):
+        hist = cv2.calcHist([image], [i], None, [256], [0, 256])
+        plt.plot(hist, color=color)
+        plt.xlim([0, 256])
 
-        # Настройка и запуск краулинга изображений
-        crawler.crawl(
-            keyword=self.keyword,  
-            max_num=self.num_images,  
-            min_size=(200, 200),  
-            filters={'type': 'photo'},  
-            file_idx_offset='auto'  
-        )
+    plt.title('Гистограмма изображения')
+    plt.xlabel('Значение пикселей')
+    plt.ylabel('Частота')
+    plt.legend(['Blue', 'Green', 'Red'])
+    plt.show()
 
-        # Запись аннотаций изображений в CSV
-        self._write_annotation()
+    # 3. Обрезка изображения
+    cropped_image = image[:crop_height, :crop_width]
 
-    # Метод для записи аннотаций изображений в CSV файл
-    def _write_annotation(self):
-        
-        with open(self.annotation_file, mode='w', newline='', encoding='utf-8') as csvfile:
-            fieldnames = ['absolute_path', 'relative_path']  
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            writer.writeheader()  # Запись заголовка
+    # Проверка, не превышают ли размеры обрезки исходные размеры
+    if crop_width > width or crop_height > height:
+        print("Предупреждение: заданные размеры обрезки превышают размеры исходного изображения. "
+              "Изображение будет обрезано до максимального доступного размера.")
 
-            # Запись путей изображений в CSV
-            for filename in os.listdir(self.save_folder):
-                if filename.endswith(('.png', '.jpg', '.jpeg')):  # Проверка типа файла
-                    absolute_path = os.path.abspath(os.path.join(self.save_folder, filename))  # Абсолютный путь
-                    relative_path = os.path.join(self.save_folder, filename)  # Относительный путь
-                    writer.writerow({'absolute_path': absolute_path, 'relative_path': relative_path})  # Запись строки в CSV
+    # 4. Отображение исходного и обрезанного изображения
+    plt.figure(figsize=(10, 5))
+    
+    # Исходное изображение
+    plt.subplot(1, 2, 1)
+    plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+    plt.title("Исходное изображение")
+    
+    # Обрезанное изображение
+    plt.subplot(1, 2, 2)
+    plt.imshow(cv2.cvtColor(cropped_image, cv2.COLOR_BGR2RGB))
+    plt.title("Обрезанное изображение")
 
-# Класс для создания итератора по изображениям, загруженным в указанную папку или CSV файл
-class ImageIterator:
-    def __init__(self, annotation_file=None, folder_path=None):
-        self.images = []  # Список путей к изображениям
-        if annotation_file:
-            self._load_from_csv(annotation_file)  # Загрузка путей из CSV файла
-        elif folder_path:
-            self._load_from_folder(folder_path)  # Загрузка путей из папки
-        self.index = 0  # Начальный индекс итерации
+    plt.show()
 
-    # Загрузка путей изображений из CSV файла
-    def _load_from_csv(self, annotation_file):
-        with open(annotation_file, mode='r', encoding='utf-8') as csvfile:
-            reader = csv.DictReader(csvfile)
-            self.images = [row['absolute_path'] for row in reader]  # Чтение путей из CSV
+    # 5. Сохранение результата
+    cv2.imwrite(output_path, cropped_image)
+    print(f"Обрезанное изображение сохранено по пути: {output_path}")
 
-    # Загрузка путей изображений из папки
-    def _load_from_folder(self, folder_path):
-        for filename in os.listdir(folder_path):
-            if filename.endswith(('.png', '.jpg', '.jpeg')):  # Проверка типа файла
-                self.images.append(os.path.join(folder_path, filename))  # Добавление пути в список
-
-    # Инициализация итератора
-    def __iter__(self):
-        return self
-
-    # Метод для перебора изображений по одному
-    def __next__(self):
-        if self.index < len(self.images):  # Проверка, не вышли ли за пределы списка
-            image_path = self.images[self.index]  # Получение текущего пути к изображению
-            self.index += 1  # Переход к следующему изображению
-            return image_path  # Возврат текущего изображения
-        else:
-            raise StopIteration  # Завершение итерации, если все изображения пройдены
-
-# Точка входа при запуске скрипта из командной строки
 if __name__ == "__main__":
-    # Проверка количества аргументов командной строки
-    if len(sys.argv) not in (5, 6):
-        print("Usage: python script.py <keyword> <save_folder> <annotation_file> <num_images> [source]")
-        sys.exit(1)
-
-    # Присвоение переменным значений из аргументов командной строки
-    keyword = sys.argv[1]  
-    save_folder = sys.argv[2]  
-    annotation_file = sys.argv[3]  
-    num_images = int(sys.argv[4])  
-    source = sys.argv[5] if len(sys.argv) == 6 else 'google'  
-
-    # Создание и запуск экземпляра краулера
-    crawler = CatImageCrawler(keyword, save_folder, annotation_file, num_images, source)
-    crawler.crawl_images()
-
-    # Использование итератора для просмотра скачанных изображений
-    print("Iterating over loaded images:")
-    image_iterator = ImageIterator(annotation_file=annotation_file)
-    for image_path in image_iterator:
-        print(image_path)  # Вывод пути к каждому изображению
+    parser = argparse.ArgumentParser(description="Обрезка изображения и построение гистограммы.")
+    parser.add_argument("input_path", type=str, help="Путь к входному изображению")
+    parser.add_argument("output_path", type=str, help="Путь для сохранения обрезанного изображения")
+    parser.add_argument("crop_width", type=int, help="Ширина обрезанного изображения")
+    parser.add_argument("crop_height", type=int, help="Высота обрезанного изображения")
+    
+    args = parser.parse_args()
+    main(args.input_path, args.output_path, args.crop_width, args.crop_height)
