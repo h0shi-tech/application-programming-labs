@@ -1,68 +1,94 @@
-import cv2
-import numpy as np
-import matplotlib.pyplot as plt
-import argparse
 import os
+import pandas as pd
+import cv2
+import matplotlib.pyplot as plt
 
-def main(input_path, output_path, crop_width, crop_height):
-    # 1. Чтение изображения
-    image = cv2.imread(input_path)
+
+def create_dataframe(base_path, annotation_file):
+
+    annotations = pd.read_csv(annotation_file)
     
-    if image is None:
-        print("Ошибка: невозможно загрузить изображение. Проверьте путь к файлу.")
-        return
+    
+    file_data = []
+    for _, row in annotations.iterrows():
+        rel_path = row['relative_path']  
+        abs_path = os.path.abspath(os.path.join(base_path, rel_path))
+        file_data.append([abs_path, rel_path])
+    
+    df = pd.DataFrame(file_data, columns=["Absolute Path", "Relative Path"])
+    return df
 
-    # Вывод размера изображения
-    height, width, channels = image.shape
-    print(f"Размер изображения: {width}x{height} пикселей, Каналы: {channels}")
+def add_image_info(df):
+    heights, widths, depths = [], [], []
+    for path in df["Absolute Path"]:
+        image = cv2.imread(path)
+        if image is not None:
+            height, width, depth = image.shape
+        else:
+            height, width, depth = None, None, None
+        heights.append(height)
+        widths.append(width)
+        depths.append(depth)
+    df["Height"] = heights
+    df["Width"] = widths
+    df["Depth"] = depths
+    return df
 
-    # 2. Построение гистограммы
-    plt.figure()
-    colors = ('b', 'g', 'r')
-    for i, color in enumerate(colors):
-        hist = cv2.calcHist([image], [i], None, [256], [0, 256])
-        plt.plot(hist, color=color)
-        plt.xlim([0, 256])
+def get_statistics(df):
+    stats = df[["Height", "Width", "Depth"]].describe()
+    print("Статистическая информация о размерах изображений:")
+    print(stats)
 
-    plt.title('Гистограмма изображения')
-    plt.xlabel('Значение пикселей')
-    plt.ylabel('Частота')
-    plt.legend(['Blue', 'Green', 'Red'])
+
+def filter_by_dimensions(df, max_width, max_height):
+    filtered_df = df[(df["Height"] <= max_height) & (df["Width"] <= max_width)]
+    return filtered_df
+
+def add_image_area(df):
+    df["Area"] = df["Height"] * df["Width"]
+    return df
+
+def sort_by_area(df):
+    df = df.sort_values(by="Area", ascending=True)
+    return df
+
+
+def plot_area_histogram(df):
+    plt.figure(figsize=(10, 6))
+    plt.hist(df["Area"].dropna(), bins=20, color="blue", alpha=0.7)
+    plt.title("Распределение площадей изображений")
+    plt.xlabel("Площадь изображения (пиксели)")
+    plt.ylabel("Частота")
+    plt.grid(True)
     plt.show()
 
-    # 3. Обрезка изображения
-    cropped_image = image[:crop_height, :crop_width]
-
-    # Проверка, не превышают ли размеры обрезки исходные размеры
-    if crop_width > width or crop_height > height:
-        print("Предупреждение: заданные размеры обрезки превышают размеры исходного изображения. "
-              "Изображение будет обрезано до максимального доступного размера.")
-
-    # 4. Отображение исходного и обрезанного изображения
-    plt.figure(figsize=(10, 5))
-    
-    # Исходное изображение
-    plt.subplot(1, 2, 1)
-    plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-    plt.title("Исходное изображение")
-    
-    # Обрезанное изображение
-    plt.subplot(1, 2, 2)
-    plt.imshow(cv2.cvtColor(cropped_image, cv2.COLOR_BGR2RGB))
-    plt.title("Обрезанное изображение")
-
-    plt.show()
-
-    # 5. Сохранение результата
-    cv2.imwrite(output_path, cropped_image)
-    print(f"Обрезанное изображение сохранено по пути: {output_path}")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Обрезка изображения и построение гистограммы.")
-    parser.add_argument("input_path", type=str, help="Путь к входному изображению")
-    parser.add_argument("output_path", type=str, help="Путь для сохранения обрезанного изображения")
-    parser.add_argument("crop_width", type=int, help="Ширина обрезанного изображения")
-    parser.add_argument("crop_height", type=int, help="Высота обрезанного изображения")
+
+    base_path = "С:/images"  
+    annotation_file = "annotation_file.csv"  
+
+  
+    df = create_dataframe(base_path, annotation_file)
+
     
-    args = parser.parse_args()
-    main(args.input_path, args.output_path, args.crop_width, args.crop_height)
+    df = add_image_info(df)
+
+  
+    get_statistics(df)
+
+    max_width, max_height = 500, 500  
+    filtered_df = filter_by_dimensions(df, max_width, max_height)
+    print("Отфильтрованный DataFrame:")
+    print(filtered_df)
+
+    
+    df = add_image_area(df)
+
+    
+    df = sort_by_area(df)
+
+    plot_area_histogram(df)
+
+    df.to_csv("output_dataframe.csv", index=False)
+    print("DataFrame сохранен в файл 'output_dataframe.csv'")
