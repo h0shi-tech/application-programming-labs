@@ -1,94 +1,61 @@
-import os
-import pandas as pd
-import cv2
-import matplotlib.pyplot as plt
+import sys
+from PyQt5 import QtWidgets, QtGui
+from PyQt5.QtWidgets import QFileDialog, QLabel, QPushButton, QVBoxLayout, QWidget
+from pathlib import Path
+from lab2_iterator import DatasetIterator  # Импортируем итератор из лабораторной работы №2
 
 
-def create_dataframe(base_path, annotation_file):
+class MainWindow(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Просмотр датасета")
+        self.setGeometry(100, 100, 800, 600)
 
-    annotations = pd.read_csv(annotation_file)
-    
-    
-    file_data = []
-    for _, row in annotations.iterrows():
-        rel_path = row['relative_path']  
-        abs_path = os.path.abspath(os.path.join(base_path, rel_path))
-        file_data.append([abs_path, rel_path])
-    
-    df = pd.DataFrame(file_data, columns=["Absolute Path", "Relative Path"])
-    return df
+        # Элементы интерфейса
+        self.layout = QVBoxLayout()
 
-def add_image_info(df):
-    heights, widths, depths = [], [], []
-    for path in df["Absolute Path"]:
-        image = cv2.imread(path)
-        if image is not None:
-            height, width, depth = image.shape
-        else:
-            height, width, depth = None, None, None
-        heights.append(height)
-        widths.append(width)
-        depths.append(depth)
-    df["Height"] = heights
-    df["Width"] = widths
-    df["Depth"] = depths
-    return df
+        self.image_label = QLabel("Выберите папку с датасетом", self)
+        self.image_label.setAlignment(QtGui.Qt.AlignCenter)
+        self.image_label.setScaledContents(True)
+        self.image_label.setFixedSize(600, 400)
+        self.layout.addWidget(self.image_label)
 
-def get_statistics(df):
-    stats = df[["Height", "Width", "Depth"]].describe()
-    print("Статистическая информация о размерах изображений:")
-    print(stats)
+        self.select_folder_button = QPushButton("Выбрать папку с датасетом", self)
+        self.select_folder_button.clicked.connect(self.select_folder)
+        self.layout.addWidget(self.select_folder_button)
 
+        self.next_button = QPushButton("Следующее изображение", self)
+        self.next_button.clicked.connect(self.show_next_image)
+        self.next_button.setEnabled(False)
+        self.layout.addWidget(self.next_button)
 
-def filter_by_dimensions(df, max_width, max_height):
-    filtered_df = df[(df["Height"] <= max_height) & (df["Width"] <= max_width)]
-    return filtered_df
+        self.setLayout(self.layout)
 
-def add_image_area(df):
-    df["Area"] = df["Height"] * df["Width"]
-    return df
+        # Переменные
+        self.iterator = None
+        self.dataset_path = None
 
-def sort_by_area(df):
-    df = df.sort_values(by="Area", ascending=True)
-    return df
+    def select_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, "Выберите папку с датасетом")
+        if folder:
+            self.dataset_path = Path(folder)
+            self.iterator = DatasetIterator(self.dataset_path)  # Создаем итератор
+            self.next_button.setEnabled(True)
+            self.show_next_image()
 
-
-def plot_area_histogram(df):
-    plt.figure(figsize=(10, 6))
-    plt.hist(df["Area"].dropna(), bins=20, color="blue", alpha=0.7)
-    plt.title("Распределение площадей изображений")
-    plt.xlabel("Площадь изображения (пиксели)")
-    plt.ylabel("Частота")
-    plt.grid(True)
-    plt.show()
+    def show_next_image(self):
+        if self.iterator:
+            try:
+                image_path = next(self.iterator)  # Получаем следующий путь
+                pixmap = QtGui.QPixmap(str(image_path))
+                self.image_label.setPixmap(pixmap)
+            except StopIteration:
+                self.image_label.setText("Все изображения просмотрены.")
+                self.next_button.setEnabled(False)
 
 
 if __name__ == "__main__":
-
-    base_path = "С:/images"  
-    annotation_file = "annotation_file.csv"  
-
-  
-    df = create_dataframe(base_path, annotation_file)
-
-    
-    df = add_image_info(df)
-
-  
-    get_statistics(df)
-
-    max_width, max_height = 500, 500  
-    filtered_df = filter_by_dimensions(df, max_width, max_height)
-    print("Отфильтрованный DataFrame:")
-    print(filtered_df)
-
-    
-    df = add_image_area(df)
-
-    
-    df = sort_by_area(df)
-
-    plot_area_histogram(df)
-
-    df.to_csv("output_dataframe.csv", index=False)
-    print("DataFrame сохранен в файл 'output_dataframe.csv'")
+    app = QtWidgets.QApplication(sys.argv)
+    main_window = MainWindow()
+    main_window.show()
+    sys.exit(app.exec_())
